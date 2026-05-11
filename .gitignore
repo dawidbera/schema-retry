@@ -1,0 +1,53 @@
+# Build & Output
+target/
+build/
+out/
+bin/
+
+# Java Class files
+*.class
+
+# Logs
+*.log
+*.txt
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+.settings/
+.project
+.classpath
+.nb-gradle/
+
+# Node.js
+node_modules/
+
+# Environment & Local Overrides
+.env
+*.local
+*.env.*
+local.properties
+*.tfvars
+*.tfvars.json
+
+# Infrastructure (Terraform & Ansible)
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+*.retry
+
+# Frontend (Angular)
+.angular/
+dist/
+coverage/
+.sass-cache/
+
+# Testing & Reports
+build/reports/
+target/gatling/
+
+# OS files
+.DS_Store
+Thumbs.db

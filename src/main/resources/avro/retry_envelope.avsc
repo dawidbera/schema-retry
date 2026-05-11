@@ -1,0 +1,38 @@
+{
+  "type": "record",
+  "name": "RetryEnvelope",
+  "namespace": "io.schemaretry.avro",
+  "fields": [
+    {
+      "name": "original_payload",
+      "type": "bytes",
+      "doc": "The serialized original message payload"
+    },
+    {
+      "name": "schema_id",
+      "type": "int",
+      "doc": "The Schema Registry ID of the original payload"
+    },
+    {
+      "name": "error_message",
+      "type": "string",
+      "doc": "The exception message that triggered the retry"
+    },
+    {
+      "name": "stacktrace",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Optional stacktrace snippet"
+    },
+    {
+      "name": "attempt",
+      "type": "int",
+      "doc": "The current retry attempt number"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "doc": "Epoch milliseconds when the retry was initiated"
+    }
+  ]
+}
