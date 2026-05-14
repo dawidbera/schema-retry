@@ -72,4 +72,13 @@ public class RetryRouter {
 
         producer.send(record);
     }
+
+    /**
+     * Returns the state store used by this router.
+     *
+     * @return The RedisStateStore instance.
+     */
+    public RedisStateStore getStateStore() {
+        return stateStore;
+    }
 }

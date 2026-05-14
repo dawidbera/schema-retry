@@ -11,6 +11,7 @@ import java.time.Duration;
 public class RedisStateStore implements AutoCloseable {
     private static final String COUNT_PREFIX = "schema-retry:count:";
     private static final String IDEMPOTENCY_PREFIX = "schema-retry:idempotency:";
+    private static final String CB_PREFIX = "schema-retry:cb:status:";
     
     private final RedisClient redisClient;
     private final StatefulRedisConnection<String, String> connection;
@@ -21,6 +22,11 @@ public class RedisStateStore implements AutoCloseable {
 
     /**
      * Constructs a new RedisStateStore with a provided connection (useful for testing).
+     *
+     * @param redisClient    The Redis client instance.
+     * @param connection     The stateful Redis connection.
+     * @param countTtl       TTL for retry count keys.
+     * @param idempotencyTtl TTL for idempotency keys.
      */
     protected RedisStateStore(RedisClient redisClient, StatefulRedisConnection<String, String> connection, 
                              Duration countTtl, Duration idempotencyTtl) {
@@ -78,6 +84,25 @@ public class RedisStateStore implements AutoCloseable {
         // setIfAbsent (NX) returns "OK" if set, null if already exists
         String result = syncCommands.set(key, "1", io.lettuce.core.SetArgs.Builder.nx().ex(idempotencyTtl));
         return result == null;
+    }
+
+    /**
+     * Gets the current Circuit Breaker status for a service.
+     * @param service Name of the service.
+     * @return "OPEN", "CLOSED", or null if not set.
+     */
+    public String getCircuitBreakerStatus(String service) {
+        return syncCommands.get(CB_PREFIX + service);
+    }
+
+    /**
+     * Sets the Circuit Breaker status for a service with a dynamic TTL.
+     * @param service Name of the service.
+     * @param status "OPEN" or "CLOSED".
+     * @param ttl Duration for which this status is valid.
+     */
+    public void setCircuitBreakerStatus(String service, String status, Duration ttl) {
+        syncCommands.setex(CB_PREFIX + service, ttl.toSeconds(), status);
     }
 
     /**
