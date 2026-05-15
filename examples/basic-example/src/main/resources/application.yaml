@@ -1,0 +1,17 @@
+# Example Configuration for basic-example application
+schema-retry:
+  retry:
+    max-attempts: 3
+    backoff:
+      initial-interval-ms: 2000
+      multiplier: 1.5
+      max-interval-ms: 30000
+
+  redis:
+    uri: "redis://localhost:6379"
+
+  schema-registry:
+    url: "http://localhost:8081"
+
+  kafka:
+    bootstrap-servers: "localhost:9092"

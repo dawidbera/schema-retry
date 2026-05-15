@@ -23,6 +23,7 @@ public class RetryOrchestrator implements AutoCloseable {
     private final BackoffStrategy backoffStrategy;
     private final RetryRouter retryRouter;
     private final KafkaProducer<byte[], Object> producer;
+    private final AvroSerdeService avroSerdeService;
 
     private final List<RetryConsumer<?, ?>> consumers = new ArrayList<>();
 
@@ -58,6 +59,14 @@ public class RetryOrchestrator implements AutoCloseable {
                 Duration.ofMillis(config.getRetry().getBackoff().getMaxIntervalMs())
         );
         this.retryRouter = new RetryRouter(stateStore, envelopeProcessor, backoffStrategy, producer);
+        
+        if (config.getSchemaRegistry() != null && config.getSchemaRegistry().getUrl() != null) {
+            this.avroSerdeService = new AvroSerdeService(config.getSchemaRegistry().createClient());
+            log.info("Avro deserialization enabled using Schema Registry at {}", config.getSchemaRegistry().getUrl());
+        } else {
+            this.avroSerdeService = null;
+        }
+
         log.info("RetryOrchestrator initialized");
     }
 
@@ -89,6 +98,7 @@ public class RetryOrchestrator implements AutoCloseable {
                 config.getKafka().toProperties(groupId),
                 retryRouter,
                 envelopeProcessor,
+                avroSerdeService,
                 handler,
                 maxAttempts
         );

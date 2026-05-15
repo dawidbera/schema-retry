@@ -1,0 +1,24 @@
+# Default Configuration Template for schema-retry
+schema-retry:
+  # Global retry settings
+  retry:
+    max-attempts: 3
+    backoff:
+      initial-interval-ms: 1000
+      multiplier: 2.0
+      max-interval-ms: 60000
+
+  # Redis state store configuration
+  redis:
+    uri: "redis://localhost:6379"
+    count-ttl-hours: 24
+    idempotency-ttl-hours: 1
+
+  # Confluent Schema Registry configuration
+  schema-registry:
+    url: "http://localhost:8081"
+    capacity: 1000
+
+  # Kafka basic settings
+  kafka:
+    bootstrap-servers: "localhost:9092"

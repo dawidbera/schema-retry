@@ -3,6 +3,8 @@ package io.schemaretry;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 
 import java.io.File;
 import java.io.IOException;
@@ -91,9 +93,23 @@ public class SchemaRetryConfig {
     public static class SchemaRegistryConfig {
         @JsonProperty("url")
         private String url = "http://localhost:8081";
+        @JsonProperty("capacity")
+        private int capacity = 1000;
 
         public String getUrl() { return url; }
         public void setUrl(String url) { this.url = url; }
+
+        public int getCapacity() { return capacity; }
+        public void setCapacity(int capacity) { this.capacity = capacity; }
+
+        /**
+         * Creates a SchemaRegistryClient based on this configuration.
+         *
+         * @return A CachedSchemaRegistryClient instance.
+         */
+        public SchemaRegistryClient createClient() {
+            return new CachedSchemaRegistryClient(url, capacity);
+        }
     }
 
     /**

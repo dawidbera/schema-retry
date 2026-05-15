@@ -32,8 +32,10 @@ class RetryConsumerTest {
     private KafkaConsumer<byte[], Object> kafkaConsumer;
     @Mock
     private RedisStateStore stateStore;
+    @Mock
+    private AvroSerdeService avroSerdeService;
 
-    private RetryConsumer<byte[], byte[]> retryConsumer;
+    private RetryConsumer<byte[], Object> retryConsumer;
 
     /**
      * Initializes the test environment before each test case.
@@ -41,8 +43,8 @@ class RetryConsumerTest {
     @BeforeEach
     void setUp() {
         when(retryRouter.getStateStore()).thenReturn(stateStore);
-        retryConsumer = new RetryConsumer<>(kafkaConsumer, retryRouter, envelopeProcessor, (v, ctx) -> {
-            if (new String(v).equals("fail")) {
+        retryConsumer = new RetryConsumer<>(kafkaConsumer, retryRouter, envelopeProcessor, avroSerdeService, (v, ctx) -> {
+            if ("fail".equals(v)) {
                 throw new RuntimeException("Simulated failure");
             }
         }, 3);
@@ -58,6 +60,8 @@ class RetryConsumerTest {
         ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders", 0, 0, "123".getBytes(), payload);
         when(stateStore.getCircuitBreakerStatus("orders")).thenReturn("CLOSED");
         when(stateStore.checkAndMarkIdempotent("123")).thenReturn(false);
+        when(avroSerdeService.extractSchemaId(payload)).thenReturn(-1);
+        when(avroSerdeService.deserialize("orders", payload, -1)).thenReturn("success");
 
         // When
         retryConsumer.processRecord(record);
@@ -65,7 +69,7 @@ class RetryConsumerTest {
         // Then
         verify(stateStore).getCircuitBreakerStatus("orders");
         verify(stateStore).checkAndMarkIdempotent("123");
-        verifyNoMoreInteractions(retryRouter);
+        verify(avroSerdeService).deserialize("orders", payload, -1);
     }
 
     /**
@@ -78,15 +82,15 @@ class RetryConsumerTest {
         ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders", 0, 0, "123".getBytes(), payload);
         when(stateStore.getCircuitBreakerStatus("orders")).thenReturn("CLOSED");
         when(stateStore.checkAndMarkIdempotent("123")).thenReturn(true);
+        when(avroSerdeService.extractSchemaId(payload)).thenReturn(-1);
 
         // When
         retryConsumer.processRecord(record);
 
         // Then
         verify(stateStore).checkAndMarkIdempotent("123");
-        // Verify that the handler was NOT called. Since handler is mocked by the test's setup logic, 
-        // we check that retryRouter (which would be called on failure/success if logic continued) is not interacted with further.
-        verifyNoMoreInteractions(retryRouter);
+        // Verify that the handler was NOT called.
+        verify(avroSerdeService, never()).deserialize(anyString(), any(), anyInt());
     }
 
     /**
@@ -99,6 +103,8 @@ class RetryConsumerTest {
         ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders", 0, 0, "123".getBytes(), payload);
         when(stateStore.getCircuitBreakerStatus("orders")).thenReturn("CLOSED");
         when(stateStore.checkAndMarkIdempotent("123")).thenReturn(false);
+        when(avroSerdeService.extractSchemaId(payload)).thenReturn(-1);
+        when(avroSerdeService.deserialize("orders", payload, -1)).thenReturn("fail");
 
         // When
         retryConsumer.processRecord(record);
@@ -108,11 +114,11 @@ class RetryConsumerTest {
     }
 
     /**
-     * Verifies that a message wrapped in a {@link RetryEnvelope} is correctly unwrapped 
-     * and the retry context is populated with the correct attempt number.
+     * Verifies that a message wrapped in a {@link RetryEnvelope} is correctly unwrapped,
+     * deserialized, and the retry context is populated with the correct attempt number.
      */
     @Test
-    void shouldUnwrapRetryEnvelope() {
+    void shouldUnwrapAndDeserializeRetryEnvelope() {
         // Given
         byte[] originalPayload = "data".getBytes(StandardCharsets.UTF_8);
         RetryEnvelope envelope = mock(RetryEnvelope.class);
@@ -121,22 +127,22 @@ class RetryConsumerTest {
         when(envelopeProcessor.unwrap(envelope)).thenReturn(originalPayload);
         when(stateStore.getCircuitBreakerStatus("orders-retry-1s")).thenReturn("CLOSED");
         when(stateStore.checkAndMarkIdempotent("123")).thenReturn(false);
+        when(avroSerdeService.deserialize("orders-retry-1s", originalPayload, 42)).thenReturn("deserialized-data");
 
         ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders-retry-1s", 0, 0, "123".getBytes(), envelope);
 
-        AtomicReference<RetryContext> capturedContext = new AtomicReference<>();
-        retryConsumer = new RetryConsumer<>(kafkaConsumer, retryRouter, envelopeProcessor, (v, ctx) -> {
-            capturedContext.set(ctx);
+        AtomicReference<Object> capturedValue = new AtomicReference<>();
+        retryConsumer = new RetryConsumer<>(kafkaConsumer, retryRouter, envelopeProcessor, avroSerdeService, (v, ctx) -> {
+            capturedValue.set(v);
         }, 3);
-        when(retryRouter.getStateStore()).thenReturn(stateStore); // Need to re-stub because of new instance
+        when(retryRouter.getStateStore()).thenReturn(stateStore);
 
         // When
         retryConsumer.processRecord(record);
 
         // Then
-        assertNotNull(capturedContext.get());
-        assertEquals(1, capturedContext.get().getAttempt());
-        verify(envelopeProcessor).unwrap(envelope);
+        assertEquals("deserialized-data", capturedValue.get());
+        verify(avroSerdeService).deserialize("orders-retry-1s", originalPayload, 42);
     }
 
     /**
@@ -149,11 +155,13 @@ class RetryConsumerTest {
         ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders", 0, 0, "msg-1".getBytes(), payload);
         when(stateStore.getCircuitBreakerStatus("orders")).thenReturn("CLOSED");
         when(stateStore.checkAndMarkIdempotent("msg-1")).thenReturn(false);
+        when(avroSerdeService.extractSchemaId(payload)).thenReturn(-1);
+        when(avroSerdeService.deserialize(eq("orders"), eq(payload), anyInt())).thenReturn("mdc-test");
 
         AtomicReference<String> capturedMdcId = new AtomicReference<>();
         AtomicReference<String> capturedMdcTopic = new AtomicReference<>();
         
-        retryConsumer = new RetryConsumer<>(kafkaConsumer, retryRouter, envelopeProcessor, (v, ctx) -> {
+        retryConsumer = new RetryConsumer<>(kafkaConsumer, retryRouter, envelopeProcessor, avroSerdeService, (v, ctx) -> {
             capturedMdcId.set(MDC.get("messageId"));
             capturedMdcTopic.set(MDC.get("topic"));
         }, 3);

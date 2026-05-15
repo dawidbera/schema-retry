@@ -27,6 +27,7 @@ public class RetryConsumer<K, V> implements AutoCloseable {
     private final Consumer<byte[], Object> kafkaConsumer;
     private final RetryRouter retryRouter;
     private final EnvelopeProcessor envelopeProcessor;
+    private final AvroSerdeService avroSerdeService;
     private final BiConsumer<V, RetryContext> handler;
     private final int maxAttempts;
     private final AtomicBoolean running = new AtomicBoolean(true);
@@ -46,11 +47,30 @@ public class RetryConsumer<K, V> implements AutoCloseable {
                          EnvelopeProcessor envelopeProcessor,
                          BiConsumer<V, RetryContext> handler,
                          int maxAttempts) {
-        this(new KafkaConsumer<>(consumerProps), retryRouter, envelopeProcessor, handler, maxAttempts);
+        this(new KafkaConsumer<>(consumerProps), retryRouter, envelopeProcessor, null, handler, maxAttempts);
     }
 
     /**
-     * Internal constructor for RetryConsumer, allowing for a pre-configured KafkaConsumer (useful for testing).
+     * Constructs a new RetryConsumer with Avro deserialization support.
+     *
+     * @param consumerProps     Kafka consumer configuration properties.
+     * @param retryRouter       Router for handling failed messages.
+     * @param envelopeProcessor Processor for wrapping/unwrapping retry envelopes.
+     * @param avroSerdeService  Service for automatic Avro deserialization.
+     * @param handler           User-provided logic for processing consumed messages.
+     * @param maxAttempts       Maximum number of retry attempts.
+     */
+    public RetryConsumer(Properties consumerProps, 
+                         RetryRouter retryRouter, 
+                         EnvelopeProcessor envelopeProcessor,
+                         AvroSerdeService avroSerdeService,
+                         BiConsumer<V, RetryContext> handler,
+                         int maxAttempts) {
+        this(new KafkaConsumer<>(consumerProps), retryRouter, envelopeProcessor, avroSerdeService, handler, maxAttempts);
+    }
+
+    /**
+     * Internal constructor for RetryConsumer without Avro support (useful for testing).
      *
      * @param kafkaConsumer     The Kafka consumer instance to use.
      * @param retryRouter       Router for handling failed messages.
@@ -63,9 +83,29 @@ public class RetryConsumer<K, V> implements AutoCloseable {
                           EnvelopeProcessor envelopeProcessor,
                           BiConsumer<V, RetryContext> handler,
                           int maxAttempts) {
+        this(kafkaConsumer, retryRouter, envelopeProcessor, null, handler, maxAttempts);
+    }
+
+    /**
+     * Internal constructor for RetryConsumer, allowing for a pre-configured KafkaConsumer (useful for testing).
+     *
+     * @param kafkaConsumer     The Kafka consumer instance to use.
+     * @param retryRouter       Router for handling failed messages.
+     * @param envelopeProcessor Processor for wrapping/unwrapping retry envelopes.
+     * @param avroSerdeService  Service for automatic Avro deserialization.
+     * @param handler           User-provided logic for processing consumed messages.
+     * @param maxAttempts       Maximum number of retry attempts.
+     */
+    protected RetryConsumer(Consumer<byte[], Object> kafkaConsumer,
+                          RetryRouter retryRouter,
+                          EnvelopeProcessor envelopeProcessor,
+                          AvroSerdeService avroSerdeService,
+                          BiConsumer<V, RetryContext> handler,
+                          int maxAttempts) {
         this.kafkaConsumer = kafkaConsumer;
         this.retryRouter = retryRouter;
         this.envelopeProcessor = envelopeProcessor;
+        this.avroSerdeService = avroSerdeService;
         this.handler = handler;
         this.maxAttempts = maxAttempts;
         // Java 21 Virtual Thread Per Task Executor
@@ -112,7 +152,7 @@ public class RetryConsumer<K, V> implements AutoCloseable {
 
         try {
             byte[] payload;
-            int schemaId = -1; // In a real scenario, extract from Kafka headers or magic bytes
+            int schemaId = -1;
             int currentAttempt = 0;
 
             Object value = record.value();
@@ -122,6 +162,9 @@ public class RetryConsumer<K, V> implements AutoCloseable {
                 currentAttempt = envelope.getAttempt();
             } else if (value instanceof byte[] bytes) {
                 payload = bytes;
+                if (avroSerdeService != null) {
+                    schemaId = avroSerdeService.extractSchemaId(bytes);
+                }
             } else {
                 log.error("Unsupported record value type: {}", value.getClass().getName());
                 return;
@@ -154,9 +197,15 @@ public class RetryConsumer<K, V> implements AutoCloseable {
             );
 
             try {
-                // Here we'd normally deserialize the payload to V if it's still bytes
-                // For MVP, assuming handler can take the payload
-                handler.accept((V) payload, context);
+                Object actualValue = value;
+                if (avroSerdeService != null) {
+                    actualValue = avroSerdeService.deserialize(record.topic(), payload, schemaId);
+                } else if (value instanceof RetryEnvelope) {
+                    // If no avroSerdeService, we pass the raw bytes from the envelope
+                    actualValue = payload;
+                }
+
+                handler.accept((V) actualValue, context);
                 
                 // If handler didn't call retry/discard, we consider it a success
                 if (context.getResultAction() == DefaultRetryContext.Action.NONE) {
