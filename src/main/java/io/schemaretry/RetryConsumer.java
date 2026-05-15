@@ -115,6 +115,12 @@ public class RetryConsumer<K, V> implements AutoCloseable {
             return;
         }
 
+        // Idempotency check
+        if (retryRouter.getStateStore().checkAndMarkIdempotent(messageId)) {
+            log.info("Message {} already processed (idempotent), skipping", messageId);
+            return;
+        }
+
         byte[] payload;
         int schemaId = -1; // In a real scenario, extract from Kafka headers or magic bytes
         int currentAttempt = 0;

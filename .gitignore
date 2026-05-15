@@ -51,3 +51,5 @@ target/gatling/
 # OS files
 .DS_Store
 Thumbs.db
+schema-retry/target/
+schema-retry/.gitignore

@@ -19,13 +19,24 @@ public class EnvelopeProcessor {
      * @return A populated RetryEnvelope instance.
      */
     public RetryEnvelope wrap(byte[] originalPayload, int schemaId, Throwable throwable, int attempt) {
+        String stackTrace = getStackTraceSnippet(throwable);
         return RetryEnvelope.newBuilder()
                 .setOriginalPayload(ByteBuffer.wrap(originalPayload))
                 .setSchemaId(schemaId)
                 .setErrorMessage(throwable.getMessage() != null ? throwable.getMessage() : throwable.getClass().getName())
+                .setStacktrace(stackTrace)
                 .setAttempt(attempt)
                 .setTimestamp(Instant.now().toEpochMilli())
                 .build();
+    }
+
+    private String getStackTraceSnippet(Throwable throwable) {
+        java.io.StringWriter sw = new java.io.StringWriter();
+        java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+        throwable.printStackTrace(pw);
+        String fullTrace = sw.toString();
+        // Return first 2000 characters or full trace if shorter
+        return fullTrace.length() > 2000 ? fullTrace.substring(0, 2000) : fullTrace;
     }
 
     /**

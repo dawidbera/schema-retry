@@ -1,0 +1,26 @@
+image: maven:3.9.6-eclipse-temurin-21
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+
+cache:
+  paths:
+    - .m2/repository
+
+stages:
+  - build
+  - test
+
+build:
+  stage: build
+  script:
+    - mvn -B compile -f schema-retry/pom.xml
+
+test:
+  stage: test
+  services:
+    - redis:7-alpine
+  variables:
+    REDIS_URI: redis://redis:6379
+  script:
+    - mvn -B test -f schema-retry/pom.xml

@@ -56,13 +56,36 @@ class RetryConsumerTest {
         byte[] payload = "success".getBytes(StandardCharsets.UTF_8);
         ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders", 0, 0, "123".getBytes(), payload);
         when(stateStore.getCircuitBreakerStatus("orders")).thenReturn("CLOSED");
+        when(stateStore.checkAndMarkIdempotent("123")).thenReturn(false);
 
         // When
         retryConsumer.processRecord(record);
 
         // Then
         verify(stateStore).getCircuitBreakerStatus("orders");
-        verifyNoMoreInteractions(retryRouter); // This might still fail if I call it multiple times, but let's be more specific.
+        verify(stateStore).checkAndMarkIdempotent("123");
+        verifyNoMoreInteractions(retryRouter);
+    }
+
+    /**
+     * Verifies that a message is skipped if it has already been processed (idempotency).
+     */
+    @Test
+    void shouldSkipMessageIfAlreadyProcessed() {
+        // Given
+        byte[] payload = "success".getBytes(StandardCharsets.UTF_8);
+        ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders", 0, 0, "123".getBytes(), payload);
+        when(stateStore.getCircuitBreakerStatus("orders")).thenReturn("CLOSED");
+        when(stateStore.checkAndMarkIdempotent("123")).thenReturn(true);
+
+        // When
+        retryConsumer.processRecord(record);
+
+        // Then
+        verify(stateStore).checkAndMarkIdempotent("123");
+        // Verify that the handler was NOT called. Since handler is mocked by the test's setup logic, 
+        // we check that retryRouter (which would be called on failure/success if logic continued) is not interacted with further.
+        verifyNoMoreInteractions(retryRouter);
     }
 
     /**
@@ -74,6 +97,7 @@ class RetryConsumerTest {
         byte[] payload = "fail".getBytes(StandardCharsets.UTF_8);
         ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders", 0, 0, "123".getBytes(), payload);
         when(stateStore.getCircuitBreakerStatus("orders")).thenReturn("CLOSED");
+        when(stateStore.checkAndMarkIdempotent("123")).thenReturn(false);
 
         // When
         retryConsumer.processRecord(record);
@@ -95,6 +119,7 @@ class RetryConsumerTest {
         when(envelope.getSchemaId()).thenReturn(42);
         when(envelopeProcessor.unwrap(envelope)).thenReturn(originalPayload);
         when(stateStore.getCircuitBreakerStatus("orders-retry-1s")).thenReturn("CLOSED");
+        when(stateStore.checkAndMarkIdempotent("123")).thenReturn(false);
 
         ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders-retry-1s", 0, 0, "123".getBytes(), envelope);
 
