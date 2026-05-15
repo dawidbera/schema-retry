@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.slf4j.MDC;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -136,5 +137,34 @@ class RetryConsumerTest {
         assertNotNull(capturedContext.get());
         assertEquals(1, capturedContext.get().getAttempt());
         verify(envelopeProcessor).unwrap(envelope);
+    }
+
+    /**
+     * Verifies that MDC context is correctly set and cleared during record processing.
+     */
+    @Test
+    void shouldPropagateMdcContext() {
+        // Given
+        byte[] payload = "mdc-test".getBytes(StandardCharsets.UTF_8);
+        ConsumerRecord<byte[], Object> record = new ConsumerRecord<>("orders", 0, 0, "msg-1".getBytes(), payload);
+        when(stateStore.getCircuitBreakerStatus("orders")).thenReturn("CLOSED");
+        when(stateStore.checkAndMarkIdempotent("msg-1")).thenReturn(false);
+
+        AtomicReference<String> capturedMdcId = new AtomicReference<>();
+        AtomicReference<String> capturedMdcTopic = new AtomicReference<>();
+        
+        retryConsumer = new RetryConsumer<>(kafkaConsumer, retryRouter, envelopeProcessor, (v, ctx) -> {
+            capturedMdcId.set(MDC.get("messageId"));
+            capturedMdcTopic.set(MDC.get("topic"));
+        }, 3);
+        when(retryRouter.getStateStore()).thenReturn(stateStore);
+
+        // When
+        retryConsumer.processRecord(record);
+
+        // Then
+        assertEquals("msg-1", capturedMdcId.get());
+        assertEquals("orders", capturedMdcTopic.get());
+        assertNull(MDC.get("messageId"), "MDC should be cleared after processing");
     }
 }

@@ -7,6 +7,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -106,64 +107,73 @@ public class RetryConsumer<K, V> implements AutoCloseable {
     void processRecord(ConsumerRecord<byte[], Object> record) {
         String messageId = record.key() != null ? new String(record.key()) : "unknown-" + System.nanoTime();
         
-        // Circuit Breaker check
-        String cbStatus = retryRouter.getStateStore().getCircuitBreakerStatus(record.topic());
-        if ("OPEN".equals(cbStatus)) {
-            log.warn("Circuit is OPEN for topic {}, delaying processing of message {}", record.topic(), messageId);
-            // In a real scenario, we might want to pause the consumer or use a specific delay.
-            // For MVP, we'll route it back to the same topic or a retry topic.
-            return;
-        }
-
-        // Idempotency check
-        if (retryRouter.getStateStore().checkAndMarkIdempotent(messageId)) {
-            log.info("Message {} already processed (idempotent), skipping", messageId);
-            return;
-        }
-
-        byte[] payload;
-        int schemaId = -1; // In a real scenario, extract from Kafka headers or magic bytes
-        int currentAttempt = 0;
+        MDC.put("messageId", messageId);
+        MDC.put("topic", record.topic());
 
         try {
-            Object value = record.value();
-            if (value instanceof RetryEnvelope envelope) {
-                payload = envelopeProcessor.unwrap(envelope);
-                schemaId = envelope.getSchemaId();
-                currentAttempt = envelope.getAttempt();
-            } else if (value instanceof byte[] bytes) {
-                payload = bytes;
-            } else {
-                log.error("Unsupported record value type: {}", value.getClass().getName());
+            // Circuit Breaker check
+            String cbStatus = retryRouter.getStateStore().getCircuitBreakerStatus(record.topic());
+            if ("OPEN".equals(cbStatus)) {
+                log.warn("Circuit is OPEN for topic {}, delaying processing of message {}", record.topic(), messageId);
+                // In a real scenario, we might want to pause the consumer or use a specific delay.
+                // For MVP, we'll route it back to the same topic or a retry topic.
                 return;
             }
 
-            DefaultRetryContext context = new DefaultRetryContext(
-                    record.topic(), 
-                    messageId, 
-                    payload, 
-                    schemaId, 
-                    currentAttempt, 
-                    maxAttempts, 
-                    retryRouter
-            );
-
-            try {
-                // Here we'd normally deserialize the payload to V if it's still bytes
-                // For MVP, assuming handler can take the payload
-                handler.accept((V) payload, context);
-                
-                // If handler didn't call retry/discard, we consider it a success
-                if (context.getResultAction() == DefaultRetryContext.Action.NONE) {
-                    log.debug("Message {} processed successfully", messageId);
-                }
-            } catch (Exception e) {
-                log.error("Handler failed for message {}", messageId, e);
-                context.retry(e);
+            // Idempotency check
+            if (retryRouter.getStateStore().checkAndMarkIdempotent(messageId)) {
+                log.info("Message {} already processed (idempotent), skipping", messageId);
+                return;
             }
 
-        } catch (Exception e) {
-            log.error("Failed to process record from topic {}", record.topic(), e);
+            byte[] payload;
+            int schemaId = -1; // In a real scenario, extract from Kafka headers or magic bytes
+            int currentAttempt = 0;
+
+            try {
+                Object value = record.value();
+                if (value instanceof RetryEnvelope envelope) {
+                    payload = envelopeProcessor.unwrap(envelope);
+                    schemaId = envelope.getSchemaId();
+                    currentAttempt = envelope.getAttempt();
+                } else if (value instanceof byte[] bytes) {
+                    payload = bytes;
+                } else {
+                    log.error("Unsupported record value type: {}", value.getClass().getName());
+                    return;
+                }
+
+                MDC.put("attempt", String.valueOf(currentAttempt));
+
+                DefaultRetryContext context = new DefaultRetryContext(
+                        record.topic(), 
+                        messageId, 
+                        payload, 
+                        schemaId, 
+                        currentAttempt, 
+                        maxAttempts, 
+                        retryRouter
+                );
+
+                try {
+                    // Here we'd normally deserialize the payload to V if it's still bytes
+                    // For MVP, assuming handler can take the payload
+                    handler.accept((V) payload, context);
+                    
+                    // If handler didn't call retry/discard, we consider it a success
+                    if (context.getResultAction() == DefaultRetryContext.Action.NONE) {
+                        log.debug("Message {} processed successfully", messageId);
+                    }
+                } catch (Exception e) {
+                    log.error("Handler failed for message {}", messageId, e);
+                    context.retry(e);
+                }
+
+            } catch (Exception e) {
+                log.error("Failed to process record from topic {}", record.topic(), e);
+            }
+        } finally {
+            MDC.clear();
         }
     }
 
