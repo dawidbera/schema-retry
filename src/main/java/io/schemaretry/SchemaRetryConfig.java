@@ -39,8 +39,13 @@ public class SchemaRetryConfig {
         private int idempotencyTtlHours = 1;
 
         public String getUri() { return uri; }
+        public void setUri(String uri) { this.uri = uri; }
+        
         public int getCountTtlHours() { return countTtlHours; }
+        public void setCountTtlHours(int countTtlHours) { this.countTtlHours = countTtlHours; }
+        
         public int getIdempotencyTtlHours() { return idempotencyTtlHours; }
+        public void setIdempotencyTtlHours(int idempotencyTtlHours) { this.idempotencyTtlHours = idempotencyTtlHours; }
     }
 
     /**
@@ -53,7 +58,10 @@ public class SchemaRetryConfig {
         private BackoffConfig backoff = new BackoffConfig();
 
         public int getMaxAttempts() { return maxAttempts; }
+        public void setMaxAttempts(int maxAttempts) { this.maxAttempts = maxAttempts; }
+        
         public BackoffConfig getBackoff() { return backoff; }
+        public void setBackoff(BackoffConfig backoff) { this.backoff = backoff; }
     }
 
     /**
@@ -68,8 +76,13 @@ public class SchemaRetryConfig {
         private long maxIntervalMs = 60000;
 
         public long getInitialIntervalMs() { return initialIntervalMs; }
+        public void setInitialIntervalMs(long initialIntervalMs) { this.initialIntervalMs = initialIntervalMs; }
+        
         public double getMultiplier() { return multiplier; }
+        public void setMultiplier(double multiplier) { this.multiplier = multiplier; }
+        
         public long getMaxIntervalMs() { return maxIntervalMs; }
+        public void setMaxIntervalMs(long maxIntervalMs) { this.maxIntervalMs = maxIntervalMs; }
     }
 
     /**
@@ -80,6 +93,7 @@ public class SchemaRetryConfig {
         private String url = "http://localhost:8081";
 
         public String getUrl() { return url; }
+        public void setUrl(String url) { this.url = url; }
     }
 
     /**
@@ -90,6 +104,7 @@ public class SchemaRetryConfig {
         private String bootstrapServers = "localhost:9092";
 
         public String getBootstrapServers() { return bootstrapServers; }
+        public void setBootstrapServers(String bootstrapServers) { this.bootstrapServers = bootstrapServers; }
         
         /**
          * Converts the Kafka configuration to a {@link Properties} object.

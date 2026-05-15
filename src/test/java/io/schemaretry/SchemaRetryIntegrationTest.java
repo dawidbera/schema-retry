@@ -127,4 +127,93 @@ class SchemaRetryIntegrationTest {
             assertEquals("Simulated processing error", envelope.getErrorMessage());
         }
     }
+
+    /**
+     * Verifies that messages already processed are skipped based on idempotency check.
+     */
+    @Test
+    void shouldSkipAlreadyProcessedMessage() throws Exception {
+        String messageId = "msg-dup";
+        byte[] payload = "test-payload".getBytes(StandardCharsets.UTF_8);
+
+        // Given
+        when(stateStore.getCircuitBreakerStatus(anyString())).thenReturn("CLOSED");
+        // Mark as already processed
+        when(stateStore.checkAndMarkIdempotent(messageId)).thenReturn(true);
+
+        CountDownLatch latch = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger callCount = new java.util.concurrent.atomic.AtomicInteger(0);
+
+        try (RetryConsumer<byte[], byte[]> consumer = new RetryConsumer<>(
+                mockConsumer, 
+                retryRouter, 
+                envelopeProcessor, 
+                (p, ctx) -> {
+                    callCount.incrementAndGet();
+                    latch.countDown();
+                }, 
+                3)) {
+
+            mockConsumer.updateBeginningOffsets(Collections.singletonMap(new TopicPartition(MAIN_TOPIC, 0), 0L));
+            mockConsumer.updatePartitions(MAIN_TOPIC, Collections.singletonList(
+                    new org.apache.kafka.common.PartitionInfo(MAIN_TOPIC, 0, null, null, null)
+            ));
+
+            consumer.start(MAIN_TOPIC);
+            mockConsumer.rebalance(Collections.singletonList(new TopicPartition(MAIN_TOPIC, 0)));
+            mockConsumer.addRecord(new ConsumerRecord<>(MAIN_TOPIC, 0, 0, messageId.getBytes(StandardCharsets.UTF_8), payload));
+
+            // When
+            // Wait a bit to ensure it had time to process (or skip)
+            assertFalse(latch.await(2, TimeUnit.SECONDS), "Handler should NOT have been called");
+            
+            // Then
+            assertEquals(0, callCount.get(), "Handler was invoked for an idempotent message");
+            verify(stateStore).checkAndMarkIdempotent(messageId);
+        }
+    }
+
+    /**
+     * Verifies that messages are skipped when the circuit breaker is OPEN.
+     */
+    @Test
+    void shouldSkipMessageWhenCircuitIsOpen() throws Exception {
+        String messageId = "msg-cb";
+        byte[] payload = "test-payload".getBytes(StandardCharsets.UTF_8);
+
+        // Given
+        when(stateStore.getCircuitBreakerStatus(MAIN_TOPIC)).thenReturn("OPEN");
+
+        CountDownLatch latch = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger callCount = new java.util.concurrent.atomic.AtomicInteger(0);
+
+        try (RetryConsumer<byte[], byte[]> consumer = new RetryConsumer<>(
+                mockConsumer, 
+                retryRouter, 
+                envelopeProcessor, 
+                (p, ctx) -> {
+                    callCount.incrementAndGet();
+                    latch.countDown();
+                }, 
+                3)) {
+
+            mockConsumer.updateBeginningOffsets(Collections.singletonMap(new TopicPartition(MAIN_TOPIC, 0), 0L));
+            mockConsumer.updatePartitions(MAIN_TOPIC, Collections.singletonList(
+                    new org.apache.kafka.common.PartitionInfo(MAIN_TOPIC, 0, null, null, null)
+            ));
+
+            consumer.start(MAIN_TOPIC);
+            mockConsumer.rebalance(Collections.singletonList(new TopicPartition(MAIN_TOPIC, 0)));
+            mockConsumer.addRecord(new ConsumerRecord<>(MAIN_TOPIC, 0, 0, messageId.getBytes(StandardCharsets.UTF_8), payload));
+
+            // When
+            assertFalse(latch.await(2, TimeUnit.SECONDS), "Handler should NOT have been called");
+            
+            // Then
+            assertEquals(0, callCount.get(), "Handler was invoked while circuit is OPEN");
+            verify(stateStore).getCircuitBreakerStatus(MAIN_TOPIC);
+            // Idempotency check should NOT be called if CB is OPEN
+            verify(stateStore, never()).checkAndMarkIdempotent(anyString());
+        }
+    }
 }
