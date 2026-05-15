@@ -14,7 +14,7 @@ stages:
 build:
   stage: build
   script:
-    - mvn -B compile -f schema-retry/pom.xml
+    - mvn -B compile -f pom.xml
 
 test:
   stage: test
@@ -23,4 +23,4 @@ test:
   variables:
     REDIS_URI: redis://redis:6379
   script:
-    - mvn -B test -f schema-retry/pom.xml
+    - mvn -B test -f pom.xml
