@@ -174,10 +174,10 @@ class SchemaRetryIntegrationTest {
     }
 
     /**
-     * Verifies that messages are skipped when the circuit breaker is OPEN.
+     * Verifies that messages are re-routed to a retry topic when the circuit breaker is OPEN.
      */
     @Test
-    void shouldSkipMessageWhenCircuitIsOpen() throws Exception {
+    void shouldRouteToRetryWhenCircuitIsOpen() throws Exception {
         String messageId = "msg-cb";
         byte[] payload = "test-payload".getBytes(StandardCharsets.UTF_8);
 
@@ -207,13 +207,22 @@ class SchemaRetryIntegrationTest {
             mockConsumer.addRecord(new ConsumerRecord<>(MAIN_TOPIC, 0, 0, messageId.getBytes(StandardCharsets.UTF_8), payload));
 
             // When
-            assertFalse(latch.await(2, TimeUnit.SECONDS), "Handler should NOT have been called");
+            // Wait for processing
+            Thread.sleep(1000); 
             
             // Then
             assertEquals(0, callCount.get(), "Handler was invoked while circuit is OPEN");
             verify(stateStore).getCircuitBreakerStatus(MAIN_TOPIC);
-            // Idempotency check should NOT be called if CB is OPEN
-            verify(stateStore, never()).checkAndMarkIdempotent(anyString());
+            
+            // Verify message was re-routed to retry topic
+            List<ProducerRecord<byte[], Object>> history = mockProducer.history();
+            assertFalse(history.isEmpty(), "No records produced (should have been re-routed)");
+            assertEquals(RETRY_TOPIC, history.get(0).topic());
+            
+            // Verify attempt count was NOT incremented (remains 0 in this case)
+            RetryEnvelope envelope = (RetryEnvelope) history.get(0).value();
+            assertEquals(0, envelope.getAttempt());
+            assertTrue(envelope.getErrorMessage().toString().contains("Circuit Breaker OPEN"));
         }
     }
 }

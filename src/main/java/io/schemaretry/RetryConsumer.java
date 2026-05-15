@@ -111,12 +111,29 @@ public class RetryConsumer<K, V> implements AutoCloseable {
         MDC.put("topic", record.topic());
 
         try {
+            byte[] payload;
+            int schemaId = -1; // In a real scenario, extract from Kafka headers or magic bytes
+            int currentAttempt = 0;
+
+            Object value = record.value();
+            if (value instanceof RetryEnvelope envelope) {
+                payload = envelopeProcessor.unwrap(envelope);
+                schemaId = envelope.getSchemaId();
+                currentAttempt = envelope.getAttempt();
+            } else if (value instanceof byte[] bytes) {
+                payload = bytes;
+            } else {
+                log.error("Unsupported record value type: {}", value.getClass().getName());
+                return;
+            }
+
+            MDC.put("attempt", String.valueOf(currentAttempt));
+
             // Circuit Breaker check
             String cbStatus = retryRouter.getStateStore().getCircuitBreakerStatus(record.topic());
             if ("OPEN".equals(cbStatus)) {
-                log.warn("Circuit is OPEN for topic {}, delaying processing of message {}", record.topic(), messageId);
-                // In a real scenario, we might want to pause the consumer or use a specific delay.
-                // For MVP, we'll route it back to the same topic or a retry topic.
+                log.warn("Circuit is OPEN for topic {}, re-routing message {} to retry topic for delay", record.topic(), messageId);
+                retryRouter.routeDelayed(record.topic(), messageId, payload, schemaId, currentAttempt);
                 return;
             }
 
@@ -126,52 +143,31 @@ public class RetryConsumer<K, V> implements AutoCloseable {
                 return;
             }
 
-            byte[] payload;
-            int schemaId = -1; // In a real scenario, extract from Kafka headers or magic bytes
-            int currentAttempt = 0;
+            DefaultRetryContext context = new DefaultRetryContext(
+                    record.topic(), 
+                    messageId, 
+                    payload, 
+                    schemaId, 
+                    currentAttempt, 
+                    maxAttempts, 
+                    retryRouter
+            );
 
             try {
-                Object value = record.value();
-                if (value instanceof RetryEnvelope envelope) {
-                    payload = envelopeProcessor.unwrap(envelope);
-                    schemaId = envelope.getSchemaId();
-                    currentAttempt = envelope.getAttempt();
-                } else if (value instanceof byte[] bytes) {
-                    payload = bytes;
-                } else {
-                    log.error("Unsupported record value type: {}", value.getClass().getName());
-                    return;
+                // Here we'd normally deserialize the payload to V if it's still bytes
+                // For MVP, assuming handler can take the payload
+                handler.accept((V) payload, context);
+                
+                // If handler didn't call retry/discard, we consider it a success
+                if (context.getResultAction() == DefaultRetryContext.Action.NONE) {
+                    log.debug("Message {} processed successfully", messageId);
                 }
-
-                MDC.put("attempt", String.valueOf(currentAttempt));
-
-                DefaultRetryContext context = new DefaultRetryContext(
-                        record.topic(), 
-                        messageId, 
-                        payload, 
-                        schemaId, 
-                        currentAttempt, 
-                        maxAttempts, 
-                        retryRouter
-                );
-
-                try {
-                    // Here we'd normally deserialize the payload to V if it's still bytes
-                    // For MVP, assuming handler can take the payload
-                    handler.accept((V) payload, context);
-                    
-                    // If handler didn't call retry/discard, we consider it a success
-                    if (context.getResultAction() == DefaultRetryContext.Action.NONE) {
-                        log.debug("Message {} processed successfully", messageId);
-                    }
-                } catch (Exception e) {
-                    log.error("Handler failed for message {}", messageId, e);
-                    context.retry(e);
-                }
-
             } catch (Exception e) {
-                log.error("Failed to process record from topic {}", record.topic(), e);
+                log.error("Handler failed for message {}", messageId, e);
+                context.retry(e);
             }
+        } catch (Exception e) {
+            log.error("Failed to process record from topic {}", record.topic(), e);
         } finally {
             MDC.clear();
         }

@@ -74,6 +74,38 @@ public class RetryRouter {
     }
 
     /**
+     * Routes a message to the next retry topic due to a system-level delay (e.g., Circuit Breaker).
+     * This method does NOT increment the retry count in Redis.
+     *
+     * @param originalTopic  The topic where the message was originally consumed.
+     * @param messageId      Unique identifier for the message.
+     * @param payload        The raw bytes of the original message.
+     * @param schemaId       The Schema Registry ID of the original message.
+     * @param currentAttempt The current attempt number of this message.
+     */
+    public void routeDelayed(String originalTopic, String messageId, byte[] payload, int schemaId, int currentAttempt) {
+        String targetTopic = backoffStrategy.getTargetTopic(originalTopic, currentAttempt);
+        
+        RetryEnvelope envelope = envelopeProcessor.wrap(
+                payload, 
+                schemaId, 
+                new RetryException("Circuit Breaker OPEN - delaying processing"), 
+                currentAttempt
+        );
+
+        ProducerRecord<byte[], Object> record = new ProducerRecord<>(
+                targetTopic, 
+                messageId.getBytes(StandardCharsets.UTF_8), 
+                envelope
+        );
+
+        record.headers().add(new RecordHeader("x-retry-reason", "CIRCUIT_BREAKER_OPEN".getBytes(StandardCharsets.UTF_8)));
+        record.headers().add(new RecordHeader("x-retry-attempt", String.valueOf(currentAttempt).getBytes(StandardCharsets.UTF_8)));
+
+        producer.send(record);
+    }
+
+    /**
      * Returns the state store used by this router.
      *
      * @return The RedisStateStore instance.
