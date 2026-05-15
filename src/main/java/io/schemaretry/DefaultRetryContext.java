@@ -45,6 +45,12 @@ public class DefaultRetryContext implements RetryContext {
         this.retryRouter = retryRouter;
     }
 
+    /**
+     * Signals that the message should be retried due to a recoverable error.
+     * This method is thread-safe and will only execute once per context.
+     *
+     * @param throwable The cause of the retry.
+     */
     @Override
     public void retry(Throwable throwable) {
         if (handled.compareAndSet(false, true)) {
@@ -54,6 +60,12 @@ public class DefaultRetryContext implements RetryContext {
         }
     }
 
+    /**
+     * Signals that the message should be discarded (sent to DLQ) due to a fatal error.
+     * This method is thread-safe and will only execute once per context.
+     *
+     * @param throwable The cause of the failure.
+     */
     @Override
     public void discard(Throwable throwable) {
         if (handled.compareAndSet(false, true)) {
@@ -64,6 +76,11 @@ public class DefaultRetryContext implements RetryContext {
         }
     }
 
+    /**
+     * Returns the current retry attempt number.
+     *
+     * @return The attempt count (0 for the first attempt).
+     */
     @Override
     public int getAttempt() {
         return attempt;

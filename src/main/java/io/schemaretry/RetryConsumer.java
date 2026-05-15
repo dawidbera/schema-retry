@@ -1,10 +1,10 @@
 package io.schemaretry;
 
 import io.schemaretry.avro.RetryEnvelope;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.producer.KafkaProducer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,7 +23,7 @@ import java.util.function.BiConsumer;
 public class RetryConsumer<K, V> implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(RetryConsumer.class);
 
-    private final KafkaConsumer<byte[], Object> kafkaConsumer;
+    private final Consumer<byte[], Object> kafkaConsumer;
     private final RetryRouter retryRouter;
     private final EnvelopeProcessor envelopeProcessor;
     private final BiConsumer<V, RetryContext> handler;
@@ -57,7 +57,7 @@ public class RetryConsumer<K, V> implements AutoCloseable {
      * @param handler           User-provided logic for processing consumed messages.
      * @param maxAttempts       Maximum number of retry attempts.
      */
-    protected RetryConsumer(KafkaConsumer<byte[], Object> kafkaConsumer,
+    protected RetryConsumer(Consumer<byte[], Object> kafkaConsumer,
                           RetryRouter retryRouter,
                           EnvelopeProcessor envelopeProcessor,
                           BiConsumer<V, RetryContext> handler,

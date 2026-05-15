@@ -1,7 +1,7 @@
 package io.schemaretry;
 
 import io.schemaretry.avro.RetryEnvelope;
-import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 
@@ -14,7 +14,7 @@ public class RetryRouter {
     private final RedisStateStore stateStore;
     private final EnvelopeProcessor envelopeProcessor;
     private final BackoffStrategy backoffStrategy;
-    private final KafkaProducer<byte[], Object> producer;
+    private final Producer<byte[], Object> producer;
 
     /**
      * Constructs a RetryRouter with the necessary collaborators.
@@ -27,7 +27,7 @@ public class RetryRouter {
     public RetryRouter(RedisStateStore stateStore, 
                        EnvelopeProcessor envelopeProcessor, 
                        BackoffStrategy backoffStrategy, 
-                       KafkaProducer<byte[], Object> producer) {
+                       Producer<byte[], Object> producer) {
         this.stateStore = stateStore;
         this.envelopeProcessor = envelopeProcessor;
         this.backoffStrategy = backoffStrategy;
