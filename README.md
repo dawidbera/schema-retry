@@ -2,11 +2,11 @@
 
 High-performance, non-blocking retry library for Java applications using Apache Kafka, Confluent Schema Registry, and Redis.
 
-## 🚀 Overview
+## Overview
 
 `schema-retry` solves the "head-of-line blocking" problem in Kafka consumers while maintaining strict data contracts. It provides a robust, schema-aware retry mechanism that scales with Java 21 Virtual Threads and manages state distributedly via Redis.
 
-## 🏗 Microservices Architecture & Request Flow
+## Microservices Architecture & Request Flow
 
 The library implements a multi-tier retry strategy where failed messages are routed through a series of time-bucketed retry topics before eventually landing in a Dead Letter Queue (DLQ).
 
@@ -79,7 +79,7 @@ sequenceDiagram
     end
 ```
 
-## 🛠 Key Features
+## Key Features
 
 - **Non-blocking Retries:** Prevents slow or failing messages from blocking the entire partition.
 - **Virtual Thread Support:** Uses Java 21 `Executors.newVirtualThreadPerTaskExecutor()` for high-concurrency processing.
@@ -87,7 +87,7 @@ sequenceDiagram
 - **Distributed State:** Redis tracks retry counts and manages Circuit Breaker states across multiple service instances.
 - **Metadata Headers:** Enriches Kafka records with error class, message, and attempt count for better observability.
 
-## 🚦 Tech Stack
+## Tech Stack
 
 - **Language:** Java 21 (Loom/Virtual Threads)
 - **Messaging:** Apache Kafka / Confluent Cloud
